@@ -269,13 +269,54 @@ export function createAvatar() {
   oval(head, 'nose', skin, 0, -0.015, 0.68, 0.145, 0.125, 0.155);
   for (const side of [-1, 1]) {
     oval(head, 'nostril', blush, side * 0.083, -0.084, 0.758, 0.025, 0.016, 0.012);
-    const sideBeard = oval(head, 'side-beard', hair, side * 0.52, -0.44, 0.34, 0.2, 0.4, 0.22);
-    sideBeard.rotation.z = -side * 0.37;
   }
   const jaw = new THREE.Group();
   jaw.name = 'bearded-jaw';
   head.add(jaw);
-  oval(jaw, 'beard-base', hair, 0, -0.71, 0.32, 0.62, 0.48, 0.38);
+  function beardPoint(angle: number, height: number) {
+    const roundness = Math.sqrt(Math.max(0, 1 - height * height));
+    const wave = Math.sin(Math.PI * height);
+    const top = -0.4 + 0.38 * Math.abs(Math.sin(angle)) ** 1.8;
+    const skullRadius = Math.sqrt(1 - ((top - 0.17) / 0.81) ** 2) * 0.97;
+    const fullness = THREE.MathUtils.smoothstep(height, 0, 0.38);
+    const width = 0.77 * (0.98 + 0.03 * wave) * roundness;
+    return new THREE.Vector3(
+      THREE.MathUtils.lerp(Math.sin(angle) * 0.65 * skullRadius, Math.sin(angle) * width, fullness),
+      THREE.MathUtils.lerp(top, -1.2, height),
+      THREE.MathUtils.lerp(Math.cos(angle) * 0.57 * skullRadius,
+        0.14 + 0.06 * wave + Math.cos(angle) * 0.5 * roundness, fullness),
+    );
+  }
+  const beardVertices: number[] = [];
+  const beardUVs: number[] = [];
+  const beardIndices: number[] = [];
+  const beardRows = 24;
+  const beardSides = 64;
+  for (let row = 0; row <= beardRows; row++) {
+    for (let side = 0; side <= beardSides; side++) {
+      beardPoint(side / beardSides * Math.PI * 2, row / beardRows).toArray(beardVertices, beardVertices.length);
+      beardUVs.push(side / beardSides, row / beardRows);
+      if (row < beardRows && side < beardSides) {
+        const a = row * (beardSides + 1) + side;
+        const b = a + beardSides + 1;
+        beardIndices.push(a, b, a + 1, a + 1, b, b + 1);
+      }
+    }
+  }
+  const cap = beardVertices.length / 3;
+  beardVertices.push(0, -0.4, 0);
+  beardUVs.push(0.5, 0);
+  for (let side = 0; side < beardSides; side++) beardIndices.push(cap, side, side + 1);
+  const beardGeometry = new THREE.BufferGeometry();
+  beardGeometry.setAttribute('position', new THREE.Float32BufferAttribute(beardVertices, 3));
+  beardGeometry.setAttribute('uv', new THREE.Float32BufferAttribute(beardUVs, 2));
+  beardGeometry.setIndex(beardIndices);
+  beardGeometry.computeVertexNormals();
+  const beardRest = new Float32Array(beardVertices);
+  let beardOpening = 0;
+  const beardBase = new THREE.Mesh(beardGeometry, hair);
+  beardBase.name = 'beard-base';
+  jaw.add(beardBase);
   const mouth = oval(head, 'mouth', mouthMaterial, 0, -0.3, 0.653, 0.18, 0.025, 0.025);
   const lip = oval(jaw, 'lower-lip', blush, 0, -0.35, 0.665, 0.15, 0.033, 0.025);
   const teeth = oval(head, 'upper-teeth', white, 0, -0.292, 0.675, 0.12, 0.023, 0.009);
@@ -284,20 +325,21 @@ export function createAvatar() {
     const moustache = oval(head, 'moustache', hairLight, side * 0.155, -0.19, 0.647, 0.2, 0.085, 0.09);
     moustache.rotation.z = side * -0.17;
   }
-  for (let i = 0; i < 33; i++) {
-    const x = (i / 32 - 0.5) * 1.03;
-    const edge = Math.abs(x) / 0.515;
-    const points: [number, number, number][] = [
-      [x, -0.4 - (1 - edge) * 0.05, 0],
-      [x + Math.sin(i * 2) * 0.025, -0.67, 0],
-      [x * 0.92, -0.94 + edge * 0.06, 0],
-      [x * 0.78, -1.13 + edge * 0.18 + Math.sin(i * 1.7) * 0.02, 0],
-    ];
-    for (const point of points) {
-      point[2] = 0.325 + Math.sqrt(Math.max(0, 1 - (point[0] / 0.62) ** 2
-        - ((point[1] + 0.71) / 0.48) ** 2)) * 0.38;
+  const beardDetail = hair.clone();
+  beardDetail.userData.outlineParameters = { visible: false };
+  for (let i = 0; i < 13; i++) {
+    const angle = (i / 12 - 0.5) * Math.PI * 0.88;
+    const points: [number, number, number][] = [];
+    for (let j = 0; j <= 6; j++) {
+      const t = j / 6;
+      const sweep = angle * (1 - t * 0.12);
+      const point = beardPoint(sweep, 0.04 + t * (0.81 + Math.sin(i * 1.7) * 0.06));
+      point.x += Math.sin(t * Math.PI * 3 + i) * Math.sin(t * Math.PI) * 0.008;
+      point.z += Math.cos(sweep) * (-0.022 + Math.sin(t * Math.PI) * 0.027);
+      points.push([point.x, point.y, point.z]);
     }
-    strand(jaw, points, 0.022 + (i % 3) * 0.003, i % 4 === 0 ? hairLight : hair);
+    const wave = strand(jaw, points, 0.014 + (i % 3) * 0.002, beardDetail);
+    wave.name = 'sculpted-beard-wave';
   }
 
   const expression = { ...NEUTRAL_EXPRESSION };
@@ -421,6 +463,20 @@ export function createAvatar() {
     mouth.scale.x = 0.18 + expression.smile * 0.06;
     mouth.position.y = -0.3 - expression.jaw * 0.045;
     jaw.position.y = -expression.jaw * 0.11;
+    if (beardOpening !== expression.jaw) {
+      const position = beardGeometry.getAttribute('position');
+      const uv = beardGeometry.getAttribute('uv');
+      for (let i = 0; i < position.count; i++) {
+        // The chin follows the jaw, but the upper rim stays embedded in the head.
+        const attachment = 1 - THREE.MathUtils.smoothstep(uv.getY(i), 0, 0.45);
+        position.setY(i, beardRest[i * 3 + 1]! - jaw.position.y * attachment);
+      }
+      position.needsUpdate = true;
+      beardGeometry.computeVertexNormals();
+      beardGeometry.computeBoundingSphere();
+      beardGeometry.computeBoundingBox();
+      beardOpening = expression.jaw;
+    }
     lip.position.y = -0.35 - expression.jaw * 0.09;
     teeth.visible = expression.jaw > 0.13 || expression.smile > 0.35;
   }

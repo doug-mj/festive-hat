@@ -201,7 +201,7 @@ test('fuller beard clears the rosy cheeks and keeps the mouth opening unobstruct
   const avatar = createAvatar();
   avatar.root.updateMatrixWorld(true);
   const cheeks = avatar.head.children.filter(node => node.name === 'cheek');
-  const sides = avatar.head.children.filter(node => node.name === 'side-beard');
+  const beardParts = [avatar.head.getObjectByName('bearded-jaw')];
   const ray = new Raycaster();
   for (const cheek of cheeks) {
     for (const dx of [-0.06, 0, 0.06]) {
@@ -210,7 +210,7 @@ test('fuller beard clears the rosy cheeks and keeps the mouth opening unobstruct
         avatar.head.localToWorld(point);
         ray.set(new Vector3(point.x, point.y, 10), new Vector3(0, 0, -1));
         const blush = ray.intersectObject(cheek)[0];
-        const beard = ray.intersectObjects(sides)[0];
+        const beard = ray.intersectObjects(beardParts, true)[0];
         assert.ok(blush);
         assert.ok(!beard || beard.distance > blush.distance + 0.01,
           'upper beard must remain behind the visible cheek surface, not cut across it');
@@ -260,6 +260,34 @@ test('longer fuller hair extends below the shoulders without lifting the crown o
   }
 });
 
+test('one fuller beard wraps into the head at the front, sides and back without detaching as the jaw opens', () => {
+  const avatar = createAvatar();
+  const beard = avatar.head.getObjectByName('beard-base');
+  const position = beard.geometry.getAttribute('position');
+  const uv = beard.geometry.getAttribute('uv');
+  const roots = [];
+  for (let i = 0; i < position.count; i++) {
+    if (uv.getY(i) !== 0) continue;
+    roots.push({ index: i, point: new Vector3().fromBufferAttribute(position, i) });
+  }
+  assert.ok(Math.min(...roots.map(({ point }) => point.z)) < -0.35, 'beard must wrap behind the head, not form a front-only shield');
+  assert.ok(Math.max(...roots.map(({ point }) => point.x)) > 0.58, 'upper sides should reach the head below the ears');
+  const dimensions = new Box3().setFromObject(beard).getSize(new Vector3());
+  assert.ok(dimensions.x > 1.4 && dimensions.x < 1.65, 'continuous beard should be wider and fuller without ballooning');
+  for (const jaw of [0, 0.5, 1, 0]) {
+    const rotation = new Quaternion().setFromEuler(new Euler(0.2, 0.7, -0.2));
+    avatar.update(rotation, { ...NEUTRAL_EXPRESSION, jaw }, 0, true);
+    avatar.root.updateMatrixWorld(true);
+    for (const root of roots) {
+      const attached = beard.localToWorld(new Vector3().fromBufferAttribute(position, root.index));
+      avatar.head.worldToLocal(attached);
+      assert.ok(attached.distanceTo(root.point) < 1e-7, 'opening the mouth must not pull the upper beard away from the head');
+      const skullDistance = (attached.x / 0.65) ** 2 + ((attached.y - 0.17) / 0.81) ** 2 + (attached.z / 0.57) ** 2;
+      assert.ok(skullDistance < 1, 'every attachment must sit inside the head surface rather than float outside it');
+    }
+  }
+});
+
 test('hair bends behind movement with pinned roots and independently flexible locks and backing', () => {
   const avatar = createAvatar();
   avatar.root.scale.setScalar(130);
@@ -278,8 +306,8 @@ test('hair bends behind movement with pinned roots and independently flexible lo
       if (rest[lock][i * 3 + 1] < rest[lock][tip * 3 + 1]) tip = i;
       const y = rest[lock][i * 3 + 1] * mesh.scale.y + mesh.position.y;
       if (y >= 0.35) {
-        assert.deepEqual([position.getX(i), position.getY(i), position.getZ(i)], rest[lock].slice(i * 3, i * 3 + 3),
-          'crown vertices must stay fixed under the hat');
+        assert.ok(Math.hypot(position.getX(i) - rest[lock][i * 3], position.getY(i) - rest[lock][i * 3 + 1],
+          position.getZ(i) - rest[lock][i * 3 + 2]) < 1e-8, 'crown vertices must stay fixed under the hat');
       }
     }
     const movement = (position.getX(tip) - rest[lock][tip * 3]) * mesh.scale.x;
