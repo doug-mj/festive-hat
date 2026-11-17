@@ -22,6 +22,10 @@ npm run dev
 
 Open the localhost URL printed in the terminal. Choose a camera effect and click **Enable camera**. Select your physical webcam, **not OBS Virtual Camera**.
 
+## Hosted version
+
+[Open Evergreen Studio](https://doug-mj.github.io/festive-hat/). Pushes to `main` automatically test, build, and deploy to GitHub Pages. No local server is needed; allow camera access in Chrome.
+
 ## Use in Google Meet
 
 Requires OBS on your Mac.
