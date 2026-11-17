@@ -5,11 +5,11 @@ A local Christmas webcam effect for Google Meet, built with Three.js and MediaPi
 ## Features
 
 - **Tree hat:** head-tracked 3D Christmas tree with Santa, three flying reindeer, and a crescent moon.
-- **Puppet avatar:** follows your head position, turns, mouth, eyebrows, and winks, with spring-driven hair that sways and settles as you move.
-- Snowfall, optional illustrated outlines, mirroring, animation controls, and saved hat-fit adjustments.
+- **Puppet avatars:** choose the original puppet or Allison, both with head, mouth, eyebrow and wink tracking, plus spring-driven hair.
+- Snowfall, illustrated puppet outlines, and a simple effect selector.
 - Clean 1280 x 720 output for OBS Virtual Camera.
 
-Camera processing stays on your computer. No video uploads or microphone access. Internet is needed for the initial tracking-model download and web fonts.
+Camera processing stays on your computer. No video uploads or microphone access. Internet is needed for the initial tracking-model download.
 
 ## Run
 
@@ -20,7 +20,7 @@ npm install
 npm run dev
 ```
 
-Open the localhost URL printed in the terminal. Choose a camera effect and click **Enable camera**. Select your physical webcam, **not OBS Virtual Camera**.
+Open the localhost URL printed in the terminal. Choose a **Camera effect** and click **Start camera**. To change webcams, use your browser's camera settings; choose your physical webcam, **not OBS Virtual Camera**.
 
 ## Hosted version
 
@@ -31,7 +31,7 @@ Open the localhost URL printed in the terminal. Choose a camera effect and click
 Requires OBS on your Mac.
 
 1. In OBS, hide any raw webcam source so the app can use the camera.
-2. In the app, click **Clean output for OBS**. Press **Escape** to restore controls.
+2. In the app, click **Clean output**. Press **Escape** to restore controls.
 3. In OBS, add **macOS Screen Capture**, choose **Window Capture**, and select the app's browser window.
 4. **Option-drag** the source edges to crop browser chrome and black borders, then choose **Transform > Fit to Screen**.
 5. Start **OBS Virtual Camera** and select it as your camera in Google Meet. Keep your normal microphone selected.

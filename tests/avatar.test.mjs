@@ -72,6 +72,106 @@ test('tracking is smoothed and extreme head rotations are limited', () => {
   assert.ok(Math.abs(new Euler().setFromQuaternion(avatar.head.quaternion, 'YXZ').y - 1.05) < 1e-8);
 });
 
+test('Allison has an independent simplified face with speech, winks and shaded moving hair', () => {
+  const personal = createAvatar();
+  const avatar = createAvatar('allison');
+  for (const name of ['beard-base', 'moustache', 'sculpted-beard-wave']) {
+    assert.equal(avatar.head.getObjectByName(name), undefined, 'Allison must not inherit facial hair');
+    assert.ok(personal.head.getObjectByName(name), 'original puppet must retain its facial hair');
+  }
+  const face = avatar.head.getObjectByName('face');
+  assert.ok(avatar.head.position.z > personal.head.position.z + 0.2, 'Allison head should sit forward of the raised collar');
+  const socket = avatar.head.getObjectByName('head-neck-socket');
+  const body = avatar.root.getObjectByName('dangling-body');
+  avatar.root.updateMatrixWorld(true);
+  assert.ok(socket.getWorldPosition(new Vector3()).distanceTo(body.getWorldPosition(new Vector3())) < 1e-8,
+    'moving the head forward must preserve the neck connection');
+  assert.ok(Math.abs(body.position.z - personal.root.getObjectByName('dangling-body').position.z) < 1e-8,
+    'the body must not follow the forward head offset back into the chin');
+  assert.ok(face.scale.y > 0.9, 'Allison should have a longer face');
+  for (const name of ['upper-lip', 'lower-lip', 'nostril']) {
+    assert.equal(avatar.head.getObjectByName(name), undefined, 'Allison should not have lip or nostril details');
+  }
+  assert.ok(avatar.root.getObjectByName('puppet-torso').position.y
+    > personal.root.getObjectByName('puppet-torso').position.y + 0.15, 'Allison body should sit closer to the head');
+  for (const cheek of avatar.head.children.filter(node => node.name === 'cheek')) {
+    const normal = new Vector3(0, 0, 1).applyQuaternion(cheek.quaternion);
+    assert.ok(normal.x * Math.sign(cheek.position.x) > 0.4 && normal.z > 0.7,
+      'blush patches should curve around the cheeks rather than face straight forward');
+  }
+  const faceRest = Array.from(face.geometry.getAttribute('position').array);
+  const hair = avatar.head.getObjectByName('flowing-hair-lock');
+  const rest = Array.from(hair.geometry.getAttribute('position').array);
+  const colors = hair.geometry.getAttribute('color');
+  let low = 0;
+  let high = 0;
+  const position = hair.geometry.getAttribute('position');
+  for (let i = 1; i < position.count; i++) {
+    if (position.getY(i) < position.getY(low)) low = i;
+    if (position.getY(i) > position.getY(high)) high = i;
+  }
+  assert.ok(colors.getX(low) > colors.getX(high) * 2, 'brown hair must lighten toward the ends');
+  const mouth = avatar.head.getObjectByName('mouth');
+  const mouthStart = mouth.position.y;
+  const rotation = new Quaternion().setFromEuler(new Euler(0.2, 0.4, -0.1, 'YXZ'));
+  avatar.update(rotation, { ...NEUTRAL_EXPRESSION, jaw: 0.8, blinkLeft: 1, browRight: 0.9 }, 0, true);
+  assert.ok(avatar.head.quaternion.angleTo(rotation) < 1e-7);
+  assert.ok(mouth.scale.y > 0.1 && mouth.position.y < mouthStart, 'speech must still animate the simple mouth');
+  assert.equal(avatar.head.getObjectByName('eye-left').getObjectByName('open-eye').visible, false);
+  assert.equal(avatar.head.getObjectByName('eye-right').getObjectByName('open-eye').visible, true);
+  assert.ok(avatar.head.children.filter(node => node.name === 'eyebrow')[0].position.y > 0.6);
+  avatar.root.position.x = 0.3;
+  avatar.update(rotation, NEUTRAL_EXPRESSION, 1 / 30);
+  assert.ok(position.array.some((value, i) => Math.abs(value - rest[i]) > 0.03), 'Allison must share the hair dynamics');
+  assert.deepEqual(Array.from(face.geometry.getAttribute('position').array), faceRest, 'hair motion must not deform the face');
+  assert.equal(personal.head.getObjectByName('mouth').scale.y, 0.025, 'animating Allison must not alter the original puppet');
+});
+
+test('both puppet mouths have raised corners that deepen with smiles without distorting other facial geometry', () => {
+  for (const profile of ['personal', 'allison']) {
+    const avatar = createAvatar(profile);
+    const mouth = avatar.head.getObjectByName('mouth');
+    const face = avatar.head.getObjectByName('face');
+    assert.equal(avatar.head.getObjectByName('lower-lip'), undefined);
+    for (const cheek of avatar.head.children.filter(node => node.name === 'cheek')) {
+      const normal = new Vector3(0, 0, 1).applyQuaternion(cheek.quaternion);
+      assert.ok(normal.x * Math.sign(cheek.position.x) > 0.4 && normal.z > 0.7,
+        'both puppets should have blush patches aligned to their cheeks');
+    }
+    const faceRest = Array.from(face.geometry.getAttribute('position').array);
+    const position = mouth.geometry.getAttribute('position');
+    let corner = 0;
+    for (let i = 1; i < position.count; i++) {
+      if (position.getX(i) > position.getX(corner)) corner = i;
+    }
+    const cornerRise = () => position.getY(corner) * mouth.scale.y;
+    const neutralRise = cornerRise();
+    assert.ok(neutralRise > 0.03, 'neutral mouths should have gently lifted corners');
+    avatar.update(new Quaternion(), { ...NEUTRAL_EXPRESSION, smile: 1 }, 0, true);
+    assert.ok(cornerRise() > neutralRise + 0.04, 'tracked smiles should visibly deepen the curve');
+    avatar.update(new Quaternion(), { ...NEUTRAL_EXPRESSION, jaw: 1, smile: 1 }, 0, true);
+    assert.ok(cornerRise() > 0.07, 'opening the mouth must preserve raised corners rather than stretching the smile away');
+    assert.deepEqual(Array.from(face.geometry.getAttribute('position').array), faceRest,
+      'mouth sculpting must not deform the shared face or other oval meshes');
+  }
+});
+
+test('upper teeth stay against the top of the mouth through speech and smiles for both puppets', () => {
+  for (const profile of ['personal', 'allison']) {
+    const avatar = createAvatar(profile);
+    const mouth = avatar.head.getObjectByName('mouth');
+    const teeth = avatar.head.getObjectByName('upper-teeth');
+    for (const jaw of [0.2, 0.5, 1, 0.35, 0]) {
+      avatar.update(new Quaternion(), { ...NEUTRAL_EXPRESSION, jaw, smile: 0.6 }, 0, true);
+      assert.equal(teeth.visible, true);
+      assert.ok(Math.abs(teeth.position.y + teeth.scale.y - mouth.position.y - mouth.scale.y) < 1e-10,
+        'the top of the teeth must follow the top of the opening, not its center');
+    }
+    avatar.update(new Quaternion(), NEUTRAL_EXPRESSION, 0, true);
+    assert.equal(teeth.visible, false, 'neutral closed mouths should still hide the teeth');
+  }
+});
+
 test('small detected mouth openings are amplified immediately without losing a closed neutral mouth', () => {
   const avatar = createAvatar();
   const mouth = avatar.head.getObjectByName('mouth');
@@ -326,6 +426,30 @@ test('hair bends behind movement with pinned roots and independently flexible lo
     'turning in place must also swing the hair, even without translation');
 });
 
+test('both hairstyles have stronger but controlled follow-through after a modest sideways movement', () => {
+  for (const profile of ['personal', 'allison']) {
+    const avatar = createAvatar(profile);
+    avatar.root.scale.setScalar(130);
+    avatar.update(new Quaternion(), NEUTRAL_EXPRESSION, 0, true);
+    const lock = avatar.head.getObjectByName('flowing-hair-lock');
+    const position = lock.geometry.getAttribute('position');
+    let tip = 0;
+    for (let i = 1; i < position.count; i++) if (position.getY(i) < position.getY(tip)) tip = i;
+    const rest = position.getX(tip);
+    avatar.root.position.x = 26;
+    avatar.update(new Quaternion(), NEUTRAL_EXPRESSION, 1 / 30);
+    const initialLag = rest - position.getX(tip);
+    assert.ok(initialLag > 0.225 && initialLag < 0.27, 'a modest movement should create more lag without hitting the hard travel limit');
+    let rebound = 0;
+    for (let frame = 0; frame < 240; frame++) {
+      avatar.update(new Quaternion(), NEUTRAL_EXPRESSION, 1 / 30);
+      rebound = Math.max(rebound, position.getX(tip) - rest);
+    }
+    assert.ok(rebound > 0.05 && rebound < 0.09, 'hair should swing back farther, but not whip around uncontrollably');
+    assert.ok(Math.abs(position.getX(tip) - rest) < 1e-6, 'extra follow-through must still settle completely');
+  }
+});
+
 test('hair overshoots, settles, pauses without drift, and clears motion on tracking reacquisition', () => {
   const avatar = createAvatar();
   avatar.root.scale.setScalar(130);
@@ -341,7 +465,7 @@ test('hair overshoots, settles, pauses without drift, and clears motion on track
   for (let i = 0; i < 10; i++) avatar.update(new Quaternion(), NEUTRAL_EXPRESSION, 0);
   assert.deepEqual(Array.from(position.array), paused, 'a paused demo must not keep simulating');
   let overshoot = 0;
-  for (let i = 0; i < 180; i++) {
+  for (let i = 0; i < 240; i++) {
     avatar.update(new Quaternion(), NEUTRAL_EXPRESSION, 1 / 30);
     overshoot = Math.max(overshoot, position.getX(tip) - rest[tip * 3]);
   }
@@ -373,7 +497,7 @@ test('hair remains bounded through fast motion and long frames, while gravity re
           (position.getY(i) - rest[lock][i * 3 + 1]) * mesh.scale.y,
           (position.getZ(i) - rest[lock][i * 3 + 2]) * mesh.scale.z,
         );
-        assert.ok(Number.isFinite(displacement) && displacement < 0.52, 'hair must never explode or stretch without bounds');
+        assert.ok(Number.isFinite(displacement) && displacement < 0.62, 'hair must never explode or stretch without bounds');
       }
     });
   }

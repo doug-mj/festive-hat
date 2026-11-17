@@ -77,12 +77,14 @@ export function readPuppetExpression(categories: readonly { categoryName: string
   };
 }
 
-export function createAvatar() {
+export function createAvatar(profile: 'personal' | 'allison' = 'personal') {
+  const allison = profile === 'allison';
   const root = new THREE.Group();
-  root.name = 'personal-puppet';
+  root.name = `${profile}-puppet`;
   const head = new THREE.Group();
   head.name = 'puppet-head';
   head.position.y = 0.78;
+  head.position.z = allison ? 0.24 : 0;
   root.add(head);
   const hatMount = new THREE.Group();
   hatMount.name = 'puppet-hat-mount';
@@ -91,7 +93,7 @@ export function createAvatar() {
   head.add(hatMount);
   const neckSocket = new THREE.Object3D();
   neckSocket.name = 'head-neck-socket';
-  neckSocket.position.set(0, -0.52, -0.1);
+  neckSocket.position.set(0, -0.52, allison ? -0.34 : -0.1);
   head.add(neckSocket);
   const bodyPivot = new THREE.Group();
   bodyPivot.name = 'dangling-body';
@@ -109,8 +111,8 @@ export function createAvatar() {
   const felt = (color: string) => new THREE.MeshStandardMaterial({
     color, roughness: 1, bumpMap: texture, bumpScale: 0.012,
   });
-  const skin = felt('#d6a18b');
-  const blush = felt('#cf8e7c');
+  const skin = felt(allison ? '#d9ac96' : '#d6a18b');
+  const blush = felt(allison ? '#ca9287' : '#cf8e7c');
   const hair = felt('#35251f');
   const hairLight = felt('#463028');
   const hairDark = felt('#291e1b');
@@ -119,7 +121,9 @@ export function createAvatar() {
   const red = felt('#923b3b');
   const gold = felt('#b99b57');
   const white = felt('#ece3cf');
-  const iris = felt('#6c7770');
+  const iris = felt(allison ? '#594134' : '#6c7770');
+  const allisonHair = allison ? felt('#ffffff') : undefined;
+  if (allisonHair) allisonHair.vertexColors = true;
   const pupil = felt('#161d1b');
   const mouthMaterial = felt('#492623');
   const sphereGeometry = new THREE.SphereGeometry(1, 32, 24);
@@ -143,7 +147,7 @@ export function createAvatar() {
 
   const torso = new THREE.Group();
   torso.name = 'puppet-torso';
-  torso.position.set(0, -0.3, 0.1);
+  torso.position.set(0, allison ? -0.1 : -0.3, 0.1);
   bodyPivot.add(torso);
   const coatProfile = [
     new THREE.Vector2(0, -5.5), new THREE.Vector2(0.95, -5.5), new THREE.Vector2(1.04, -3.3),
@@ -205,26 +209,63 @@ export function createAvatar() {
       const y = position.getY(i) * mesh.scale.y + mesh.position.y;
       weights[i] = THREE.MathUtils.clamp((0.35 - y) / 1.95, 0, 1) ** 2;
     }
+    if (allisonHair) {
+      const colors = new Float32Array(position.count * 3);
+      const dark = new THREE.Color('#3f2d25');
+      const light = new THREE.Color('#927151');
+      const color = new THREE.Color();
+      for (let i = 0; i < position.count; i++) {
+        const y = position.getY(i) * mesh.scale.y + mesh.position.y;
+        color.copy(dark).lerp(light, THREE.MathUtils.smoothstep(-y, 0.1, 1.6));
+        color.toArray(colors, i * 3);
+      }
+      mesh.geometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+      mesh.material = allisonHair;
+    }
     hairLocks.push({
       mesh, rest: new Float32Array(position.array), weights, tip,
-      offset: new THREE.Vector3(), velocity: new THREE.Vector3(), stiffness,
+      offset: new THREE.Vector3(), velocity: new THREE.Vector3(), stiffness: stiffness * 0.85,
     });
   }
-  const backHair = oval(hairVolume, 'back-hair', hairDark, 0, -0.46, -0.32, 0.99, 1.38, 0.66);
+  const backHair = oval(hairVolume, 'back-hair', hairDark, 0, -0.46, allison ? -0.48 : -0.32,
+    allison ? 0.84 : 0.99, 1.38, allison ? 0.28 : 0.66);
   backHair.geometry = backHair.geometry.clone();
   flexibleHair(backHair, new THREE.Vector3(0, -1.7, -0.32), 48);
-  oval(head, 'face', skin, 0, 0.17, 0, 0.65, 0.81, 0.57);
+  const face = oval(head, 'face', skin, 0, allison ? 0.11 : 0.17, 0,
+    allison ? 0.61 : 0.65, allison ? 0.92 : 0.81, 0.57);
+  if (allison) {
+    face.geometry = face.geometry.clone();
+    const position = face.geometry.getAttribute('position');
+    for (let i = 0; i < position.count; i++) {
+      position.setX(i, position.getX(i) * (1 - 0.17 * THREE.MathUtils.smoothstep(-position.getY(i), 0.1, 0.9)));
+    }
+    face.geometry.computeVertexNormals();
+  }
   for (const side of [-1, 1]) {
     oval(head, 'ear', skin, side * 0.65, 0.02, 0.01, 0.14, 0.22, 0.12);
     oval(head, 'ear-inset', blush, side * 0.69, 0.02, 0.1, 0.066, 0.12, 0.035);
-    oval(head, 'cheek', blush, side * 0.4, -0.07, 0.46, 0.17, 0.12, 0.07);
+    const cheek = oval(head, 'cheek', blush, side * (allison ? 0.37 : 0.4), -0.07, allison ? 0.445 : 0.46,
+      allison ? 0.14 : 0.17, allison ? 0.09 : 0.12, allison ? 0.035 : 0.07);
+    const normal = new THREE.Vector3(cheek.position.x / face.scale.x ** 2,
+      (cheek.position.y - face.position.y) / face.scale.y ** 2, cheek.position.z / face.scale.z ** 2).normalize();
+    cheek.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), normal);
+    cheek.rotateZ(side * 0.12);
   }
 
   // A parted crown and layered wavy locks keep the silhouette recognizably long-haired.
   for (const side of [-1, 1]) {
     for (let i = 0; i < 14; i++) {
       const t = i / 13;
-      const lock = strand(hairVolume, [
+      const points: [number, number, number][] = allison ? [
+        [side * (0.025 + t * 0.12), 0.92 - t * 0.04, 0.07 - t * 0.52],
+        [side * (0.41 + t * 0.19), 0.76, 0.32 - t * 0.77],
+        [side * (0.65 + t * 0.15), 0.31, 0.25 - t * 0.84],
+        [side * (0.71 + t * 0.1), -0.15, 0.2 - t * 0.84],
+        [side * (0.73 + t * 0.1), -0.64, 0.22 - t * 0.84],
+        [side * (0.77 + t * 0.1), -1.05, 0.24 - t * 0.8],
+        [side * (0.88 + t * 0.08), -1.43, 0.28 - t * 0.8],
+        [side * (0.99 + Math.sin(i * 1.7) * 0.035), -1.65 - t * 0.1, 0.32 - t * 0.76],
+      ] : [
         [side * (0.03 + t * 0.13), 0.91 - t * 0.03, 0.08 - t * 0.53],
         [side * (0.46 + t * 0.2), 0.72, 0.35 - t * 0.8],
         [side * (0.79 + t * 0.12), 0.23, 0.24 - t * 0.86],
@@ -233,11 +274,11 @@ export function createAvatar() {
         [side * (0.92 + Math.sin(i * 2) * 0.08), -0.94, 0.1 - t * 0.8],
         [side * (0.86 + Math.sin(i * 2 + 1) * 0.09), -1.28, 0.16 - t * 0.8],
         [side * (0.88 + Math.sin(i * 3) * 0.1), -1.58 - t * 0.13, 0.12 - t * 0.76],
-      ], 0.1 + (i % 3) * 0.008, i % 3 === 0 ? hairLight : hair);
+      ];
+      const lock = strand(hairVolume, points,
+        (allison ? 0.075 : 0.1) + (i % 3) * 0.008, i % 3 === 0 ? hairLight : hair);
       lock.name = 'flowing-hair-lock';
-      flexibleHair(lock, new THREE.Vector3(
-        side * (0.88 + Math.sin(i * 3) * 0.1), -1.58 - t * 0.13, 0.12 - t * 0.76,
-      ), 32 + (i % 5) * 5);
+      flexibleHair(lock, new THREE.Vector3(...points[points.length - 1]!), 32 + (i % 5) * 5);
     }
   }
 
@@ -261,17 +302,18 @@ export function createAvatar() {
     closed.name = 'closed-eye';
     closed.visible = false;
     eyes.push({ open, closed, isClosed: false });
-    const brow = oval(head, 'eyebrow', hair, side * 0.26, 0.46, 0.53, 0.18, 0.038, 0.038);
+    const brow = oval(head, 'eyebrow', hair, side * 0.26, 0.46, 0.53, 0.18, allison ? 0.025 : 0.038, 0.038);
     brow.rotation.z = side * -0.09;
     brows.push(brow);
   }
-  oval(head, 'nose-bridge', skin, 0, 0.12, 0.56, 0.1, 0.2, 0.13);
-  oval(head, 'nose', skin, 0, -0.015, 0.68, 0.145, 0.125, 0.155);
-  for (const side of [-1, 1]) {
+  oval(head, 'nose-bridge', skin, 0, 0.12, 0.56, allison ? 0.075 : 0.1, 0.2, allison ? 0.09 : 0.13);
+  oval(head, 'nose', skin, 0, -0.015, allison ? 0.65 : 0.68,
+    allison ? 0.105 : 0.145, allison ? 0.09 : 0.125, allison ? 0.1 : 0.155);
+  for (const side of allison ? [] : [-1, 1]) {
     oval(head, 'nostril', blush, side * 0.083, -0.084, 0.758, 0.025, 0.016, 0.012);
   }
   const jaw = new THREE.Group();
-  jaw.name = 'bearded-jaw';
+  jaw.name = allison ? 'puppet-jaw' : 'bearded-jaw';
   head.add(jaw);
   function beardPoint(angle: number, height: number) {
     const roundness = Math.sqrt(Math.max(0, 1 - height * height));
@@ -316,18 +358,20 @@ export function createAvatar() {
   let beardOpening = 0;
   const beardBase = new THREE.Mesh(beardGeometry, hair);
   beardBase.name = 'beard-base';
-  jaw.add(beardBase);
-  const mouth = oval(head, 'mouth', mouthMaterial, 0, -0.3, 0.653, 0.18, 0.025, 0.025);
-  const lip = oval(jaw, 'lower-lip', blush, 0, -0.35, 0.665, 0.15, 0.033, 0.025);
-  const teeth = oval(head, 'upper-teeth', white, 0, -0.292, 0.675, 0.12, 0.023, 0.009);
+  if (!allison) jaw.add(beardBase);
+  const mouthY = allison ? -0.36 : -0.3;
+  const mouth = oval(head, 'mouth', mouthMaterial, 0, mouthY, allison ? 0.51 : 0.653, 0.18, 0.025, 0.025);
+  mouth.geometry = mouth.geometry.clone();
+  const mouthRest = new Float32Array(mouth.geometry.getAttribute('position').array);
+  const teeth = oval(head, 'upper-teeth', white, 0, mouthY + 0.008, allison ? 0.54 : 0.675, 0.12, 0.023, 0.009);
   teeth.visible = false;
-  for (const side of [-1, 1]) {
+  for (const side of allison ? [] : [-1, 1]) {
     const moustache = oval(head, 'moustache', hairLight, side * 0.155, -0.19, 0.647, 0.2, 0.085, 0.09);
     moustache.rotation.z = side * -0.17;
   }
   const beardDetail = hair.clone();
   beardDetail.userData.outlineParameters = { visible: false };
-  for (let i = 0; i < 13; i++) {
+  for (let i = 0; i < (allison ? 0 : 13); i++) {
     const angle = (i / 12 - 0.5) * Math.PI * 0.88;
     const points: [number, number, number][] = [];
     for (let j = 0; j <= 6; j++) {
@@ -373,16 +417,17 @@ export function createAvatar() {
         lock.velocity.set(0, 0, 0);
       } else if (duration > 0) {
         // Keep the free ends inertial as the head moves, then spring back toward the styled shape.
-        hairPoint.copy(lock.tip).add(lock.offset).applyQuaternion(hairRotationDelta).add(hairTranslation);
-        lock.offset.copy(hairPoint).sub(lock.tip);
+        hairPoint.copy(lock.tip).applyQuaternion(hairRotationDelta).sub(lock.tip)
+          .add(hairTranslation).multiplyScalar(1.18);
+        lock.offset.applyQuaternion(hairRotationDelta).add(hairPoint);
         lock.velocity.applyQuaternion(hairRotationDelta);
-        const damping = 2 * Math.sqrt(lock.stiffness) * 0.48;
+        const damping = 2 * Math.sqrt(lock.stiffness) * 0.42;
         for (let i = 0; i < steps; i++) {
           for (const axis of ['x', 'y', 'z'] as const) {
             lock.velocity[axis] += ((hairGravity[axis] - lock.offset[axis]) * lock.stiffness
               - lock.velocity[axis] * damping) * step;
             lock.offset[axis] += lock.velocity[axis] * step;
-            const limit = axis === 'y' ? 0.14 : axis === 'x' ? 0.38 : 0.32;
+            const limit = axis === 'y' ? 0.14 : axis === 'x' ? 0.46 : 0.38;
             if (Math.abs(lock.offset[axis]) > limit) {
               lock.offset[axis] = Math.sign(lock.offset[axis]) * limit;
               lock.velocity[axis] = 0;
@@ -461,9 +506,18 @@ export function createAvatar() {
     });
     mouth.scale.y = 0.025 + expression.jaw * 0.15;
     mouth.scale.x = 0.18 + expression.smile * 0.06;
-    mouth.position.y = -0.3 - expression.jaw * 0.045;
+    mouth.position.y = mouthY - expression.jaw * 0.045;
+    const mouthPosition = mouth.geometry.getAttribute('position');
+    const smileCurve = 0.035 + expression.smile * 0.045;
+    for (let i = 0; i < mouthPosition.count; i++) {
+      mouthPosition.setY(i, mouthRest[i * 3 + 1]! + smileCurve * mouthRest[i * 3]! ** 2 / mouth.scale.y);
+    }
+    mouthPosition.needsUpdate = true;
+    mouth.geometry.computeVertexNormals();
+    mouth.geometry.computeBoundingSphere();
+    mouth.geometry.computeBoundingBox();
     jaw.position.y = -expression.jaw * 0.11;
-    if (beardOpening !== expression.jaw) {
+    if (!allison && beardOpening !== expression.jaw) {
       const position = beardGeometry.getAttribute('position');
       const uv = beardGeometry.getAttribute('uv');
       for (let i = 0; i < position.count; i++) {
@@ -477,7 +531,7 @@ export function createAvatar() {
       beardGeometry.computeBoundingBox();
       beardOpening = expression.jaw;
     }
-    lip.position.y = -0.35 - expression.jaw * 0.09;
+    teeth.position.y = mouth.position.y + mouth.scale.y - teeth.scale.y;
     teeth.visible = expression.jaw > 0.13 || expression.smile > 0.35;
   }
 
