@@ -260,6 +260,106 @@ test('longer fuller hair extends below the shoulders without lifting the crown o
   }
 });
 
+test('hair bends behind movement with pinned roots and independently flexible locks and backing', () => {
+  const avatar = createAvatar();
+  avatar.root.scale.setScalar(130);
+  avatar.update(new Quaternion(), NEUTRAL_EXPRESSION, 0, true);
+  const hair = avatar.head.getObjectByName('puppet-hair');
+  const rest = hair.children.map(mesh => Array.from(mesh.geometry.getAttribute('position').array));
+  const face = avatar.head.getObjectByName('face');
+  const faceRest = Array.from(face.geometry.getAttribute('position').array);
+  avatar.root.position.x = 52;
+  avatar.update(new Quaternion(), NEUTRAL_EXPRESSION, 1 / 30);
+  const tipMotion = [];
+  hair.children.forEach((mesh, lock) => {
+    const position = mesh.geometry.getAttribute('position');
+    let tip = 0;
+    for (let i = 0; i < position.count; i++) {
+      if (rest[lock][i * 3 + 1] < rest[lock][tip * 3 + 1]) tip = i;
+      const y = rest[lock][i * 3 + 1] * mesh.scale.y + mesh.position.y;
+      if (y >= 0.35) {
+        assert.deepEqual([position.getX(i), position.getY(i), position.getZ(i)], rest[lock].slice(i * 3, i * 3 + 3),
+          'crown vertices must stay fixed under the hat');
+      }
+    }
+    const movement = (position.getX(tip) - rest[lock][tip * 3]) * mesh.scale.x;
+    assert.ok(movement < -0.2, 'both the long locks and the backing must trail a rightward head movement');
+    tipMotion.push(movement);
+  });
+  assert.ok(Math.max(...tipMotion) - Math.min(...tipMotion) > 0.001, 'locks must not all move as a single solid curtain');
+  assert.deepEqual(Array.from(face.geometry.getAttribute('position').array), faceRest,
+    'deforming the backing must not deform the shared face geometry');
+  avatar.update(new Quaternion(), NEUTRAL_EXPRESSION, 0, true);
+  const turn = new Quaternion().setFromEuler(new Euler(0, 0.65, 0));
+  avatar.update(turn, NEUTRAL_EXPRESSION, 1 / 30);
+  const lock = hair.getObjectByName('flowing-hair-lock');
+  const moved = lock.geometry.getAttribute('position').array;
+  assert.ok(moved.some((value, i) => i % 3 === 2 && Math.abs(value - rest[1][i]) > 0.04),
+    'turning in place must also swing the hair, even without translation');
+});
+
+test('hair overshoots, settles, pauses without drift, and clears motion on tracking reacquisition', () => {
+  const avatar = createAvatar();
+  avatar.root.scale.setScalar(130);
+  avatar.update(new Quaternion(), NEUTRAL_EXPRESSION, 0, true);
+  const lock = avatar.head.getObjectByName('flowing-hair-lock');
+  const rest = Array.from(lock.geometry.getAttribute('position').array);
+  const position = lock.geometry.getAttribute('position');
+  let tip = 0;
+  for (let i = 1; i < position.count; i++) if (position.getY(i) < position.getY(tip)) tip = i;
+  avatar.root.position.x = 40;
+  avatar.update(new Quaternion(), NEUTRAL_EXPRESSION, 1 / 30);
+  const paused = Array.from(position.array);
+  for (let i = 0; i < 10; i++) avatar.update(new Quaternion(), NEUTRAL_EXPRESSION, 0);
+  assert.deepEqual(Array.from(position.array), paused, 'a paused demo must not keep simulating');
+  let overshoot = 0;
+  for (let i = 0; i < 180; i++) {
+    avatar.update(new Quaternion(), NEUTRAL_EXPRESSION, 1 / 30);
+    overshoot = Math.max(overshoot, position.getX(tip) - rest[tip * 3]);
+  }
+  assert.ok(overshoot > 0.015, 'free ends should swing past rest before settling, not simply lerp back');
+  assert.ok(Math.abs(position.getX(tip) - rest[tip * 3]) < 1e-6, 'held poses must settle without endless fake wind');
+  avatar.root.position.x = -100;
+  avatar.update(new Quaternion(), NEUTRAL_EXPRESSION, 1 / 30);
+  avatar.root.position.x = 300;
+  avatar.update(new Quaternion(), NEUTRAL_EXPRESSION, 0, true);
+  avatar.update(new Quaternion(), NEUTRAL_EXPRESSION, 1 / 30);
+  assert.deepEqual(Array.from(position.array), rest, 'reacquisition must clear both deflection and stored velocity');
+});
+
+test('hair remains bounded through fast motion and long frames, while gravity responds to a held tilt', () => {
+  const avatar = createAvatar();
+  avatar.root.scale.setScalar(130);
+  avatar.update(new Quaternion(), NEUTRAL_EXPRESSION, 0, true);
+  const hair = avatar.head.getObjectByName('puppet-hair');
+  const rest = hair.children.map(mesh => Array.from(mesh.geometry.getAttribute('position').array));
+  for (let frame = 0; frame < 60; frame++) {
+    avatar.root.position.set(Math.sin(frame * 2) * 500, Math.cos(frame * 3) * 300, 0);
+    const rotation = new Quaternion().setFromEuler(new Euler(Math.sin(frame), Math.cos(frame), Math.sin(frame * 2)));
+    avatar.update(rotation, NEUTRAL_EXPRESSION, frame % 2 ? 0.5 : 1 / 60);
+    hair.children.forEach((mesh, lock) => {
+      const position = mesh.geometry.getAttribute('position');
+      for (let i = 0; i < position.count; i++) {
+        const displacement = Math.hypot(
+          (position.getX(i) - rest[lock][i * 3]) * mesh.scale.x,
+          (position.getY(i) - rest[lock][i * 3 + 1]) * mesh.scale.y,
+          (position.getZ(i) - rest[lock][i * 3 + 2]) * mesh.scale.z,
+        );
+        assert.ok(Number.isFinite(displacement) && displacement < 0.52, 'hair must never explode or stretch without bounds');
+      }
+    });
+  }
+  const tilt = new Quaternion().setFromEuler(new Euler(0, 0, 0.4));
+  avatar.update(tilt, NEUTRAL_EXPRESSION, 0, true);
+  for (let i = 0; i < 120; i++) avatar.update(tilt, NEUTRAL_EXPRESSION, 1 / 30);
+  const back = hair.getObjectByName('back-hair');
+  const position = back.geometry.getAttribute('position');
+  let tip = 0;
+  for (let i = 1; i < position.count; i++) if (position.getY(i) < position.getY(tip)) tip = i;
+  assert.ok((position.getX(tip) - rest[0][tip * 3]) * back.scale.x < -0.1,
+    'lower hair should droop toward world gravity rather than staying rigidly perpendicular to a tilted head');
+});
+
 test('eyelid gap detects actual closure through head turns without relying on blink confidence', () => {
   for (const rotation of [new Quaternion(), new Quaternion().setFromEuler(new Euler(0.3, 0.6, -0.3))]) {
     const eyes = readPuppetEyeClosure(eyeLandmarks(0.08, 0.25, rotation), { width: 1280, height: 720 });

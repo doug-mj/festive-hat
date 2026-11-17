@@ -163,6 +163,7 @@ scene.add(hat.root);
 const avatar = createAvatar();
 avatar.root.position.set(0, AVATAR_BASE_Y, 0);
 avatar.root.scale.setScalar(130);
+avatar.update(avatar.head.quaternion, NEUTRAL_EXPRESSION, 0, true);
 avatar.root.visible = false;
 scene.add(avatar.root);
 const avatarHat = createHat();
@@ -548,7 +549,7 @@ function render(now: number) {
         smile: 0.22, brow: Math.max(0, Math.sin(animationTime * 0.9)) * 0.25,
         browLeft: Math.max(0, Math.sin(animationTime * 0.6)) * 0.4,
         browRight: Math.max(0, -Math.sin(animationTime * 0.6)) * 0.4,
-      }, delta, true);
+      }, paused ? 0 : delta);
     }
     hat.root.position.set(-30, -185, 0);
     hat.root.rotation.set(0.05, Math.sin(animationTime * 0.25) * 0.3, -0.04);

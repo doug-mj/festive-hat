@@ -5,7 +5,7 @@ A local Christmas webcam effect for Google Meet, built with Three.js and MediaPi
 ## Features
 
 - **Tree hat:** head-tracked 3D Christmas tree with Santa, three flying reindeer, and a crescent moon.
-- **Puppet avatar:** replaces your webcam image with a character that follows your head position, turns, mouth, eyebrows, and winks.
+- **Puppet avatar:** follows your head position, turns, mouth, eyebrows, and winks, with spring-driven hair that sways and settles as you move.
 - Snowfall, optional illustrated outlines, mirroring, animation controls, and saved hat-fit adjustments.
 - Clean 1280 x 720 output for OBS Virtual Camera.
 

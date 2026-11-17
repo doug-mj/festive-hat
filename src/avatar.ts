@@ -188,7 +188,31 @@ export function createAvatar() {
   const hairVolume = new THREE.Group();
   hairVolume.name = 'puppet-hair';
   head.add(hairVolume);
-  oval(hairVolume, 'back-hair', hairDark, 0, -0.46, -0.32, 0.99, 1.38, 0.66);
+  const hairLocks: {
+    mesh: THREE.Mesh;
+    rest: Float32Array;
+    weights: Float32Array;
+    tip: THREE.Vector3;
+    offset: THREE.Vector3;
+    velocity: THREE.Vector3;
+    stiffness: number;
+  }[] = [];
+  function flexibleHair(mesh: THREE.Mesh, tip: THREE.Vector3, stiffness: number) {
+    const position = mesh.geometry.getAttribute('position');
+    if (position instanceof THREE.BufferAttribute) position.setUsage(THREE.DynamicDrawUsage);
+    const weights = new Float32Array(position.count);
+    for (let i = 0; i < position.count; i++) {
+      const y = position.getY(i) * mesh.scale.y + mesh.position.y;
+      weights[i] = THREE.MathUtils.clamp((0.35 - y) / 1.95, 0, 1) ** 2;
+    }
+    hairLocks.push({
+      mesh, rest: new Float32Array(position.array), weights, tip,
+      offset: new THREE.Vector3(), velocity: new THREE.Vector3(), stiffness,
+    });
+  }
+  const backHair = oval(hairVolume, 'back-hair', hairDark, 0, -0.46, -0.32, 0.99, 1.38, 0.66);
+  backHair.geometry = backHair.geometry.clone();
+  flexibleHair(backHair, new THREE.Vector3(0, -1.7, -0.32), 48);
   oval(head, 'face', skin, 0, 0.17, 0, 0.65, 0.81, 0.57);
   for (const side of [-1, 1]) {
     oval(head, 'ear', skin, side * 0.65, 0.02, 0.01, 0.14, 0.22, 0.12);
@@ -200,7 +224,7 @@ export function createAvatar() {
   for (const side of [-1, 1]) {
     for (let i = 0; i < 14; i++) {
       const t = i / 13;
-      strand(hairVolume, [
+      const lock = strand(hairVolume, [
         [side * (0.03 + t * 0.13), 0.91 - t * 0.03, 0.08 - t * 0.53],
         [side * (0.46 + t * 0.2), 0.72, 0.35 - t * 0.8],
         [side * (0.79 + t * 0.12), 0.23, 0.24 - t * 0.86],
@@ -210,6 +234,10 @@ export function createAvatar() {
         [side * (0.86 + Math.sin(i * 2 + 1) * 0.09), -1.28, 0.16 - t * 0.8],
         [side * (0.88 + Math.sin(i * 3) * 0.1), -1.58 - t * 0.13, 0.12 - t * 0.76],
       ], 0.1 + (i % 3) * 0.008, i % 3 === 0 ? hairLight : hair);
+      lock.name = 'flowing-hair-lock';
+      flexibleHair(lock, new THREE.Vector3(
+        side * (0.88 + Math.sin(i * 3) * 0.1), -1.58 - t * 0.13, 0.12 - t * 0.76,
+      ), 32 + (i % 5) * 5);
     }
   }
 
@@ -280,6 +308,62 @@ export function createAvatar() {
   const bodyTarget = new THREE.Vector3();
   const bodyRotation = new THREE.Euler(0, 0, 0, 'YXZ');
   const previousPosition = new THREE.Vector3();
+  const previousHeadQuaternion = new THREE.Quaternion();
+  const inverseHeadQuaternion = new THREE.Quaternion();
+  const hairRotationDelta = new THREE.Quaternion();
+  const hairTranslation = new THREE.Vector3();
+  const hairGravity = new THREE.Vector3();
+  const hairPoint = new THREE.Vector3();
+
+  function updateHair(delta: number, snap: boolean) {
+    const duration = THREE.MathUtils.clamp(delta, 0, 0.1);
+    inverseHeadQuaternion.copy(head.quaternion).invert();
+    hairRotationDelta.copy(inverseHeadQuaternion).multiply(previousHeadQuaternion);
+    hairTranslation.copy(previousPosition).sub(root.position).divide(root.scale).applyQuaternion(inverseHeadQuaternion);
+    hairGravity.set(0, -1, 0).applyQuaternion(inverseHeadQuaternion);
+    hairGravity.y += 1;
+    hairGravity.multiplyScalar(0.45);
+    const steps = Math.max(1, Math.ceil(duration * 120));
+    const step = duration / steps;
+    for (const lock of hairLocks) {
+      if (snap) {
+        lock.offset.set(0, 0, 0);
+        lock.velocity.set(0, 0, 0);
+      } else if (duration > 0) {
+        // Keep the free ends inertial as the head moves, then spring back toward the styled shape.
+        hairPoint.copy(lock.tip).add(lock.offset).applyQuaternion(hairRotationDelta).add(hairTranslation);
+        lock.offset.copy(hairPoint).sub(lock.tip);
+        lock.velocity.applyQuaternion(hairRotationDelta);
+        const damping = 2 * Math.sqrt(lock.stiffness) * 0.48;
+        for (let i = 0; i < steps; i++) {
+          for (const axis of ['x', 'y', 'z'] as const) {
+            lock.velocity[axis] += ((hairGravity[axis] - lock.offset[axis]) * lock.stiffness
+              - lock.velocity[axis] * damping) * step;
+            lock.offset[axis] += lock.velocity[axis] * step;
+            const limit = axis === 'y' ? 0.14 : axis === 'x' ? 0.38 : 0.32;
+            if (Math.abs(lock.offset[axis]) > limit) {
+              lock.offset[axis] = Math.sign(lock.offset[axis]) * limit;
+              lock.velocity[axis] = 0;
+            }
+          }
+        }
+      }
+      const position = lock.mesh.geometry.getAttribute('position');
+      for (let i = 0; i < position.count; i++) {
+        const weight = lock.weights[i]!;
+        position.setXYZ(i,
+          lock.rest[i * 3]! + lock.offset.x * weight / lock.mesh.scale.x,
+          lock.rest[i * 3 + 1]! + lock.offset.y * weight / lock.mesh.scale.y,
+          lock.rest[i * 3 + 2]! + lock.offset.z * weight / lock.mesh.scale.z);
+      }
+      position.needsUpdate = true;
+      lock.mesh.geometry.computeVertexNormals();
+      lock.mesh.geometry.computeBoundingSphere();
+      lock.mesh.geometry.computeBoundingBox();
+    }
+    previousHeadQuaternion.copy(head.quaternion);
+  }
+
   function update(quaternion: THREE.Quaternion, next: Readonly<PuppetExpression>, delta: number, snap = false) {
     const smoothing = snap ? 1 : 1 - Math.exp(-Math.max(0, delta) * 18);
     rotation.setFromQuaternion(quaternion, 'YXZ');
@@ -307,6 +391,7 @@ export function createAvatar() {
         }
       }
     }
+    updateHair(delta, snap);
     previousPosition.copy(root.position);
     bodyRotation.set(bodyAngles.x, bodyAngles.y, bodyAngles.z, 'YXZ');
     bodyPivot.quaternion.setFromEuler(bodyRotation);
